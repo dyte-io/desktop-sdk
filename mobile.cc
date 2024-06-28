@@ -165,6 +165,15 @@ public:
         DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
     track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
   }
+
+  void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
+                size_t number_of_channels, size_t number_of_frames,
+                int64_t absolute_capture_time_ms) {
+    auto track = DyteAudioStreamTrack(
+        DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
+    track.SendData(audio_data, bits_per_sample, sample_rate, number_of_channels,
+                   number_of_frames, absolute_capture_time_ms);
+  }
 };
 
 class DyteParticipantEventsListener : public KDyteParticipantEventsListener {
@@ -254,6 +263,13 @@ public:
     DyteSdk.DyteMobileClient.addParticipantEventsListener(*this, *listener);
   }
 
+  std::shared_ptr<DyteJoinedMeetingParticipant> GetLocalUser() {
+    auto localUser = DyteSdk.DyteMobileClient.get_localUser(*this);
+    DyteSdk.models.DyteSelfParticipant.enableAudio(localUser);
+    return std::make_shared<DyteJoinedMeetingParticipant>(
+        kDyteJoinedMeetingParticipant{localUser.pinned});
+  }
+
   bool JoinRoom() {
     auto wrappedCb = DyteSuccessFailureCb();
     DyteSdk.DyteMobileClient.joinRoom_(*this, wrappedCb.SuccessCb(),
@@ -270,7 +286,8 @@ PYBIND11_MODULE(mobile, m) {
   py::class_<DyteJoinedMeetingParticipant,
              std::shared_ptr<DyteJoinedMeetingParticipant>>(
       m, "DyteJoinedMeetingParticipant")
-      .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb);
+      .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb)
+      .def("SendData", &DyteJoinedMeetingParticipant::SendData);
 
   py::class_<DyteParticipantEventsListener, PyDyteParticipantEventsListener>(
       m, "DyteParticipantEventsListener")
@@ -283,6 +300,7 @@ PYBIND11_MODULE(mobile, m) {
            py::call_guard<py::gil_scoped_release>())
       .def("RegisterParticipantEventsListener",
            &DyteMobileClient::RegisterParticipantEventsListener)
+      .def("GetLocalUser", &DyteMobileClient::GetLocalUser)
       .def("JoinRoom", &DyteMobileClient::JoinRoom,
            py::call_guard<py::gil_scoped_release>());
 }
