@@ -2,6 +2,7 @@
 #include <functional>
 #include <future>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <pybind11/embed.h>
@@ -139,10 +140,11 @@ public:
 class DyteJoinedMeetingParticipant : public KDyteJoinedMeetingParticipant {
 private:
   std::optional<AudioCb> audioCb;
+  std::atomic<bool> listen;
 
 public:
   DyteJoinedMeetingParticipant(kDyteJoinedMeetingParticipant participant)
-      : KDyteJoinedMeetingParticipant(participant){};
+      : KDyteJoinedMeetingParticipant(participant), listen(false){};
   ~DyteJoinedMeetingParticipant(){};
 
   static void OnAudioData(const char *audio_data, int bits_per_sample,
@@ -150,6 +152,10 @@ public:
                           size_t number_of_frames,
                           int64_t absolute_capture_timestamp_ms, void *userp) {
     auto self = static_cast<DyteJoinedMeetingParticipant *>(userp);
+    if (!self->listen) {
+      return;
+    }
+
     pybind11::gil_scoped_acquire _;
 
     self->audioCb.value()(
@@ -159,12 +165,20 @@ public:
   }
 
   void RegisterDataCb(AudioCb &cb) {
+    listen = true;
+
+    if (audioCb.has_value()) {
+      return;
+    }
+
     audioCb.emplace(cb);
 
     auto track = DyteAudioStreamTrack(
         DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
     track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
   }
+
+  void UnregisterDataCb(void) { listen = false; }
 
   void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
                 size_t number_of_channels, size_t number_of_frames,
@@ -174,25 +188,63 @@ public:
     track.SendData(audio_data, bits_per_sample, sample_rate, number_of_channels,
                    number_of_frames, absolute_capture_time_ms);
   }
+
+  const char *Id(void) {
+    return DyteSdk.models.DyteJoinedMeetingParticipant.get_id(*this);
+  }
 };
 
 class DyteParticipantEventsListener : public KDyteParticipantEventsListener {
 private:
+  // Map pointer to the participant's ID to the participant object
+  // rather than the string contents as the ID pointer will remain
+  // the same across callbacks, saving us conversions between std::string
+  std::map<const void *, std::shared_ptr<DyteJoinedMeetingParticipant>> map_;
+
   static void onJoin(kDyteJoinedMeetingParticipant participant_,
                      DyteParticipantEventsListener *self) {
-    self->OnJoin(std::make_shared<DyteJoinedMeetingParticipant>(participant_));
+    auto sharedParticipant =
+        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
+
+    if (self->map_.find(sharedParticipant->Id()) != self->map_.end()) {
+      std::cout << __func__ << ": " << sharedParticipant->Id()
+                << " already exists!" << std::endl;
+      std::abort();
+    }
+
+    self->map_[sharedParticipant->Id()] = sharedParticipant;
+    self->OnJoin(sharedParticipant);
   }
 
   static void onLeave(kDyteJoinedMeetingParticipant participant_,
                       DyteParticipantEventsListener *self) {
-    self->OnLeave(std::make_shared<DyteJoinedMeetingParticipant>(participant_));
+    auto sharedParticipant =
+        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
+
+    auto it = self->map_.find(sharedParticipant->Id());
+
+    if (it == self->map_.end()) {
+      self->OnLeave(sharedParticipant);
+    } else {
+      self->OnLeave(it->second);
+      self->map_.erase(it);
+    }
   }
 
   static void onAudioUpdate(bool enabled,
                             kDyteJoinedMeetingParticipant participant_,
                             DyteParticipantEventsListener *self) {
-    self->OnAudioUpdate(
-        enabled, std::make_shared<DyteJoinedMeetingParticipant>(participant_));
+    auto sharedParticipant =
+        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
+
+    auto it = self->map_.find(sharedParticipant->Id());
+
+    if (it == self->map_.end()) {
+      self->map_[sharedParticipant->Id()] = sharedParticipant;
+      self->OnAudioUpdate(enabled, sharedParticipant);
+    } else {
+      self->OnAudioUpdate(enabled, it->second);
+    }
   }
 
 public:
@@ -287,6 +339,7 @@ PYBIND11_MODULE(mobile, m) {
              std::shared_ptr<DyteJoinedMeetingParticipant>>(
       m, "DyteJoinedMeetingParticipant")
       .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb)
+      .def("UnregisterDataCb", &DyteJoinedMeetingParticipant::UnregisterDataCb)
       .def("SendData", &DyteJoinedMeetingParticipant::SendData);
 
   py::class_<DyteParticipantEventsListener, PyDyteParticipantEventsListener>(
