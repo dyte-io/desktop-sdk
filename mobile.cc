@@ -194,8 +194,19 @@ public:
   }
 };
 
+using OnJoinCb =
+    const std::function<void(std::shared_ptr<DyteJoinedMeetingParticipant>)>;
+using OnLeaveCb =
+    const std::function<void(std::shared_ptr<DyteJoinedMeetingParticipant>)>;
+using OnAudioUpdateCb = const std::function<void(
+    bool, std::shared_ptr<DyteJoinedMeetingParticipant>)>;
+
 class DyteParticipantEventsListener : public KDyteParticipantEventsListener {
 private:
+  OnJoinCb OnJoin;
+  OnLeaveCb OnLeave;
+  OnAudioUpdateCb OnAudioUpdate;
+
   // Map pointer to the participant's ID to the participant object
   // rather than the string contents as the ID pointer will remain
   // the same across callbacks, saving us conversions between std::string
@@ -248,7 +259,8 @@ private:
   }
 
 public:
-  DyteParticipantEventsListener()
+  DyteParticipantEventsListener(OnJoinCb onJoin, OnLeaveCb onLeave,
+                                OnAudioUpdateCb onAudioUpdate)
       : KDyteParticipantEventsListener(
             DyteSdk.utils.DyteParticipantEventsListener
                 .DyteParticipantEventsListener(
@@ -258,40 +270,14 @@ public:
                         &DyteParticipantEventsListener::onLeave),
                     reinterpret_cast<void *>(
                         &DyteParticipantEventsListener::onAudioUpdate),
-                    this)) {}
+                    this)),
+        OnJoin(onJoin), OnLeave(onLeave), OnAudioUpdate(onAudioUpdate) {}
   ~DyteParticipantEventsListener() {}
-
-  virtual void OnJoin(std::shared_ptr<DyteJoinedMeetingParticipant>) = 0;
-  virtual void OnLeave(std::shared_ptr<DyteJoinedMeetingParticipant>) = 0;
-  virtual void OnAudioUpdate(bool,
-                             std::shared_ptr<DyteJoinedMeetingParticipant>) = 0;
 
   // Interface
   operator libmobilecore_kref_io_dyte_core_listeners_DyteParticipantEventsListener()
       const {
     return {obj.pinned};
-  }
-};
-
-class PyDyteParticipantEventsListener : public DyteParticipantEventsListener {
-public:
-  void
-  OnJoin(std::shared_ptr<DyteJoinedMeetingParticipant> participant) override {
-    PYBIND11_OVERRIDE_PURE(void, DyteParticipantEventsListener, OnJoin,
-                           participant);
-  }
-
-  void
-  OnLeave(std::shared_ptr<DyteJoinedMeetingParticipant> participant) override {
-    PYBIND11_OVERRIDE_PURE(void, DyteParticipantEventsListener, OnLeave,
-                           participant);
-  }
-
-  void OnAudioUpdate(
-      bool enabled,
-      std::shared_ptr<DyteJoinedMeetingParticipant> participant) override {
-    PYBIND11_OVERRIDE_PURE(void, DyteParticipantEventsListener, OnAudioUpdate,
-                           enabled, participant);
   }
 };
 
@@ -342,10 +328,8 @@ PYBIND11_MODULE(mobile, m) {
       .def("UnregisterDataCb", &DyteJoinedMeetingParticipant::UnregisterDataCb)
       .def("SendData", &DyteJoinedMeetingParticipant::SendData);
 
-  py::class_<DyteParticipantEventsListener, PyDyteParticipantEventsListener>(
-      m, "DyteParticipantEventsListener")
-      .def(py::init<>())
-      .def("OnJoin", &DyteParticipantEventsListener::OnJoin);
+  py::class_<DyteParticipantEventsListener>(m, "DyteParticipantEventsListener")
+      .def(py::init<OnJoinCb, OnLeaveCb, OnAudioUpdateCb>());
 
   py::class_<DyteMobileClient>(m, "DyteClient")
       .def(py::init<>())
