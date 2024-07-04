@@ -326,7 +326,8 @@ PYBIND11_MODULE(mobile, m) {
       m, "DyteJoinedMeetingParticipant")
       .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb)
       .def("UnregisterDataCb", &DyteJoinedMeetingParticipant::UnregisterDataCb)
-      .def("SendData", &DyteJoinedMeetingParticipant::SendData);
+      .def("SendData", &DyteJoinedMeetingParticipant::SendData)
+      .def("Id", &DyteJoinedMeetingParticipant::Id);
 
   py::class_<DyteParticipantEventsListener>(m, "DyteParticipantEventsListener")
       .def(py::init<OnJoinCb, OnLeaveCb, OnAudioUpdateCb>());

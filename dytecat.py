@@ -3,7 +3,6 @@ import os
 import time
 
 import aiohttp
-import nest_asyncio
 from pipecat.frames.frames import (
     AudioRawFrame,
     LLMMessagesFrame,
@@ -28,8 +27,6 @@ from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 
 import mobile
-
-nest_asyncio.apply()
 
 
 class DyteTransportParams(TransportParams):
@@ -112,8 +109,6 @@ class DyteTransport(BaseTransport):
         self._input = None
         self._output = None
 
-        self._got_self_participant = False
-
         self._params = DyteTransportParams()
 
         self._register_event_handler("on_join")
@@ -121,6 +116,9 @@ class DyteTransport(BaseTransport):
         self._register_event_handler("on_leave")
 
         self._client.JoinRoom()
+
+    def _is_participant_self(self, participant):
+        return participant.Id() == self._client.GetLocalUser().Id()
 
     def input(self) -> FrameProcessor:
         if not self._input:
@@ -135,6 +133,9 @@ class DyteTransport(BaseTransport):
         return self._output
 
     def on_join(self, participant):
+        if self._is_participant_self(participant):
+            return
+
         self._loop.create_task(
             self._call_event_handler("on_join", participant)
         )
@@ -143,8 +144,7 @@ class DyteTransport(BaseTransport):
         if not self._input:
             return
 
-        if not self._got_self_participant:
-            self._got_self_participant = True
+        if self._is_participant_self(participant):
             return
 
         self._loop.create_task(
@@ -157,6 +157,9 @@ class DyteTransport(BaseTransport):
             self._input.stop_listening(participant)
 
     def on_leave(self, participant):
+        if self._is_participant_self(participant):
+            return
+
         self._loop.create_task(
             self._call_event_handler("on_leave", participant)
         )
