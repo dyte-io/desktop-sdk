@@ -4,7 +4,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
-#include <optional>
+#include <mutex>
 #include <pybind11/embed.h>
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
@@ -139,12 +139,13 @@ public:
 
 class DyteJoinedMeetingParticipant : public KDyteJoinedMeetingParticipant {
 private:
-  std::optional<AudioCb> audioCb;
-  std::atomic<bool> listen;
+  std::shared_ptr<AudioCb> audioCb;
+  std::mutex audioCbMutex;
+  bool callbackRegistered;
 
 public:
   DyteJoinedMeetingParticipant(kDyteJoinedMeetingParticipant participant)
-      : KDyteJoinedMeetingParticipant(participant), listen(false){};
+      : KDyteJoinedMeetingParticipant(participant){};
   ~DyteJoinedMeetingParticipant(){};
 
   static void OnAudioData(const char *audio_data, int bits_per_sample,
@@ -152,33 +153,43 @@ public:
                           size_t number_of_frames,
                           int64_t absolute_capture_timestamp_ms, void *userp) {
     auto self = static_cast<DyteJoinedMeetingParticipant *>(userp);
-    if (!self->listen) {
+
+    auto cb = [&] {
+      std::lock_guard<std::mutex> lock(self->audioCbMutex);
+      return self->audioCb;
+    }();
+
+    if (cb == nullptr) {
       return;
     }
 
     pybind11::gil_scoped_acquire _;
 
-    self->audioCb.value()(
+    (*cb)(
         pybind11::bytes(audio_data, number_of_channels * number_of_frames * 2),
         bits_per_sample, sample_rate, number_of_channels, number_of_frames,
         absolute_capture_timestamp_ms);
   }
 
   void RegisterDataCb(AudioCb &cb) {
-    listen = true;
+    std::lock_guard<std::mutex> lock(audioCbMutex);
 
-    if (audioCb.has_value()) {
-      return;
+    // Only register the C callback once
+    if (!callbackRegistered) {
+      auto track = DyteAudioStreamTrack(
+          DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
+      track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
+
+      callbackRegistered = true;
     }
 
-    audioCb.emplace(cb);
-
-    auto track = DyteAudioStreamTrack(
-        DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
-    track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
+    audioCb = std::make_shared<AudioCb>(cb);
   }
 
-  void UnregisterDataCb(void) { listen = false; }
+  void UnregisterDataCb(void) {
+    std::lock_guard<std::mutex> lock(audioCbMutex);
+    audioCb = nullptr;
+  }
 
   void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
                 size_t number_of_channels, size_t number_of_frames,
@@ -189,7 +200,7 @@ public:
                    number_of_frames, absolute_capture_time_ms);
   }
 
-  const char *Id(void) {
+  const std::string Id(void) {
     return DyteSdk.models.DyteJoinedMeetingParticipant.get_id(*this);
   }
 };
@@ -210,52 +221,42 @@ private:
   // Map pointer to the participant's ID to the participant object
   // rather than the string contents as the ID pointer will remain
   // the same across callbacks, saving us conversions between std::string
-  std::map<const void *, std::shared_ptr<DyteJoinedMeetingParticipant>> map_;
+  std::map<const std::string, std::shared_ptr<DyteJoinedMeetingParticipant>>
+      map_;
+
+  std::shared_ptr<DyteJoinedMeetingParticipant>
+  getOrAddParticipant(kDyteJoinedMeetingParticipant participant_) {
+    auto sharedParticipant =
+        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
+    auto it = map_.find(sharedParticipant->Id());
+
+    if (it == map_.end()) {
+      std::cerr << "No participant found for ID " << sharedParticipant->Id()
+                << std::endl;
+      return (map_[sharedParticipant->Id()] = sharedParticipant);
+    }
+
+    std::cerr << "Returing existing participant for ID "
+              << sharedParticipant->Id() << std::endl;
+    return it->second;
+  }
 
   static void onJoin(kDyteJoinedMeetingParticipant participant_,
                      DyteParticipantEventsListener *self) {
-    auto sharedParticipant =
-        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
-
-    if (self->map_.find(sharedParticipant->Id()) != self->map_.end()) {
-      std::cout << __func__ << ": " << sharedParticipant->Id()
-                << " already exists!" << std::endl;
-      std::abort();
-    }
-
-    self->map_[sharedParticipant->Id()] = sharedParticipant;
-    self->OnJoin(sharedParticipant);
+    self->OnJoin(self->getOrAddParticipant(participant_));
   }
 
   static void onLeave(kDyteJoinedMeetingParticipant participant_,
                       DyteParticipantEventsListener *self) {
-    auto sharedParticipant =
-        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
-
-    auto it = self->map_.find(sharedParticipant->Id());
-
-    if (it == self->map_.end()) {
-      self->OnLeave(sharedParticipant);
-    } else {
-      self->OnLeave(it->second);
-      self->map_.erase(it);
-    }
+    auto participant = self->getOrAddParticipant(participant_);
+    self->OnLeave(participant);
+    self->map_.erase(participant->Id());
   }
 
   static void onAudioUpdate(bool enabled,
                             kDyteJoinedMeetingParticipant participant_,
                             DyteParticipantEventsListener *self) {
-    auto sharedParticipant =
-        std::make_shared<DyteJoinedMeetingParticipant>(participant_);
-
-    auto it = self->map_.find(sharedParticipant->Id());
-
-    if (it == self->map_.end()) {
-      self->map_[sharedParticipant->Id()] = sharedParticipant;
-      self->OnAudioUpdate(enabled, sharedParticipant);
-    } else {
-      self->OnAudioUpdate(enabled, it->second);
-    }
+    self->OnAudioUpdate(enabled, self->getOrAddParticipant(participant_));
   }
 
 public:
