@@ -1,4 +1,5 @@
 #include "releaseShared/libmobilecore_api.h"
+#include <Python.h>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -124,6 +125,13 @@ public:
         audioTrackExt, reinterpret_cast<void *>(cb), userp);
   }
 
+  void UnregisterDataCb(void) {
+    auto audioTrackExt = KotlinAutoFree<TypeName(core_media, AudioTrackExt)>(
+        DyteSdk.media.mutable_(*this));
+
+    DyteSdk.media.AudioTrackExt.unregisterSink(audioTrackExt);
+  }
+
   void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
                 size_t number_of_channels, size_t number_of_frames,
                 int64_t absolute_capture_time_ms) {
@@ -141,12 +149,11 @@ class DyteJoinedMeetingParticipant : public KDyteJoinedMeetingParticipant {
 private:
   std::shared_ptr<AudioCb> audioCb;
   std::mutex audioCbMutex;
-  bool callbackRegistered;
 
 public:
   DyteJoinedMeetingParticipant(kDyteJoinedMeetingParticipant participant)
       : KDyteJoinedMeetingParticipant(participant){};
-  ~DyteJoinedMeetingParticipant(){};
+  ~DyteJoinedMeetingParticipant() { UnregisterDataCb(); };
 
   static void OnAudioData(const char *audio_data, int bits_per_sample,
                           int sample_rate, size_t number_of_channels,
@@ -172,23 +179,41 @@ public:
   }
 
   void RegisterDataCb(AudioCb &cb) {
-    std::lock_guard<std::mutex> lock(audioCbMutex);
-
-    // Only register the C callback once
-    if (!callbackRegistered) {
-      auto track = DyteAudioStreamTrack(
-          DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
-      track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
-
-      callbackRegistered = true;
+    {
+      std::lock_guard<std::mutex> lock(audioCbMutex);
+      audioCb = std::make_shared<AudioCb>(cb);
     }
 
-    audioCb = std::make_shared<AudioCb>(cb);
+    auto track = DyteAudioStreamTrack(
+        DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
+    track.RegisterDataCb(&DyteJoinedMeetingParticipant::OnAudioData, this);
   }
 
   void UnregisterDataCb(void) {
-    std::lock_guard<std::mutex> lock(audioCbMutex);
-    audioCb = nullptr;
+    auto shouldUnregister = [&] {
+      std::lock_guard<std::mutex> lock(audioCbMutex);
+      if (audioCb != nullptr) {
+        audioCb = nullptr;
+        return true;
+      }
+      return false;
+    }();
+
+    if (shouldUnregister) {
+      auto track = DyteAudioStreamTrack(
+          DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
+
+      // WebRTC will internally wait for the OnAudioData callback to finish
+      // execution which can potentially deadlock as it calls into a Python
+      // function internally So release the GIL here
+      // (only if we're being called from Python)
+      if (PyGILState_Check()) {
+        pybind11::gil_scoped_release release;
+        track.UnregisterDataCb();
+      } else {
+        track.UnregisterDataCb();
+      }
+    }
   }
 
   void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
