@@ -153,7 +153,15 @@ private:
 public:
   DyteJoinedMeetingParticipant(kDyteJoinedMeetingParticipant participant)
       : KDyteJoinedMeetingParticipant(participant){};
-  ~DyteJoinedMeetingParticipant() { UnregisterDataCb(); };
+  ~DyteJoinedMeetingParticipant() {
+    if (!PyGILState_Check()) {
+      // GIL must be acquired to safely destroy AudioCb
+      py::gil_scoped_acquire _;
+      UnregisterDataCb();
+    } else {
+      UnregisterDataCb();
+    }
+  }
 
   static void OnAudioData(const char *audio_data, int bits_per_sample,
                           int sample_rate, size_t number_of_channels,
@@ -178,11 +186,20 @@ public:
         absolute_capture_timestamp_ms);
   }
 
+  bool HasDataCb(void) {
+    std::lock_guard<std::mutex> lock(audioCbMutex);
+    return audioCb != nullptr;
+  }
+
   void RegisterDataCb(AudioCb &cb) {
     {
       std::lock_guard<std::mutex> lock(audioCbMutex);
       audioCb = std::make_shared<AudioCb>(cb);
     }
+
+    // Must release the GIL here as well as WebRTC will internally
+    // wait for any ongoing OnAudioData callback to finish
+    py::gil_scoped_release _;
 
     auto track = DyteAudioStreamTrack(
         DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
@@ -190,30 +207,22 @@ public:
   }
 
   void UnregisterDataCb(void) {
-    auto shouldUnregister = [&] {
+    {
       std::lock_guard<std::mutex> lock(audioCbMutex);
-      if (audioCb != nullptr) {
-        audioCb = nullptr;
-        return true;
+      if (audioCb == nullptr) {
+        return;
       }
-      return false;
-    }();
-
-    if (shouldUnregister) {
-      auto track = DyteAudioStreamTrack(
-          DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
-
-      // WebRTC will internally wait for the OnAudioData callback to finish
-      // execution which can potentially deadlock as it calls into a Python
-      // function internally So release the GIL here
-      // (only if we're being called from Python)
-      if (PyGILState_Check()) {
-        pybind11::gil_scoped_release release;
-        track.UnregisterDataCb();
-      } else {
-        track.UnregisterDataCb();
-      }
+      audioCb = nullptr;
     }
+
+    auto track = DyteAudioStreamTrack(
+        DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this));
+
+    // WebRTC will internally wait for the OnAudioData callback to finish
+    // execution which can potentially deadlock as it calls into a Python
+    // function internally
+    py::gil_scoped_release _;
+    track.UnregisterDataCb();
   }
 
   void SendData(const char *audio_data, int bits_per_sample, int sample_rate,
@@ -350,6 +359,7 @@ PYBIND11_MODULE(mobile, m) {
   py::class_<DyteJoinedMeetingParticipant,
              std::shared_ptr<DyteJoinedMeetingParticipant>>(
       m, "DyteJoinedMeetingParticipant")
+      .def("HasDataCb", &DyteJoinedMeetingParticipant::HasDataCb)
       .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb)
       .def("UnregisterDataCb", &DyteJoinedMeetingParticipant::UnregisterDataCb)
       .def("SendData", &DyteJoinedMeetingParticipant::SendData)
