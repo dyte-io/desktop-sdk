@@ -106,6 +106,7 @@ class DyteTransport(BaseTransport):
             self.on_join,
             self.on_leave,
             self.on_audio_update,
+            self._client.GetParticipantStore(),
         )
         self._client.RegisterParticipantEventsListener(self._listener)
 
@@ -118,14 +119,14 @@ class DyteTransport(BaseTransport):
         self._register_event_handler("on_audio_update")
         self._register_event_handler("on_leave")
 
+        self._input = DyteInputTransport(self._params)
+
         self._client.JoinRoom()
 
     def _is_participant_self(self, participant):
         return participant.Id() == self._client.GetLocalUser().Id()
 
     def input(self) -> FrameProcessor:
-        if not self._input:
-            self._input = DyteInputTransport(self._params)
         return self._input
 
     def output(self) -> FrameProcessor:
@@ -147,9 +148,6 @@ class DyteTransport(BaseTransport):
             self._input.start_listening(participant)
 
     def on_audio_update(self, enabled, participant):
-        if not self._input:
-            return
-
         if self._is_participant_self(participant):
             return
 
