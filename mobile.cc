@@ -258,20 +258,17 @@ using OnLeaveCb =
 using OnAudioUpdateCb = const std::function<void(
     bool, std::shared_ptr<DyteJoinedMeetingParticipant>)>;
 
-class DyteParticipantEventsListener : public KDyteParticipantEventsListener {
+class DyteParticipantStore {
 private:
-  OnJoinCb OnJoin;
-  OnLeaveCb OnLeave;
-  OnAudioUpdateCb OnAudioUpdate;
-
-  // Map pointer to the participant's ID to the participant object
-  // rather than the string contents as the ID pointer will remain
-  // the same across callbacks, saving us conversions between std::string
   std::map<const std::string, std::shared_ptr<DyteJoinedMeetingParticipant>>
       map_;
+  std::mutex mutex_;
 
+public:
   std::shared_ptr<DyteJoinedMeetingParticipant>
-  getOrAddParticipant(kDyteJoinedMeetingParticipant participant_) {
+  GetOrAddParticipant(kDyteJoinedMeetingParticipant participant_) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto sharedParticipant =
         std::make_shared<DyteJoinedMeetingParticipant>(participant_);
     auto it = map_.find(sharedParticipant->Id());
@@ -287,27 +284,44 @@ private:
     return it->second;
   }
 
+  void RemoveParticipant(const std::string &id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    map_.erase(id);
+  }
+};
+
+class DyteParticipantEventsListener : public KDyteParticipantEventsListener {
+private:
+  OnJoinCb OnJoin;
+  OnLeaveCb OnLeave;
+  OnAudioUpdateCb OnAudioUpdate;
+
+  std::shared_ptr<DyteParticipantStore> participantStore;
+
   static void onJoin(kDyteJoinedMeetingParticipant participant_,
                      DyteParticipantEventsListener *self) {
-    self->OnJoin(self->getOrAddParticipant(participant_));
+    self->OnJoin(self->participantStore->GetOrAddParticipant(participant_));
   }
 
   static void onLeave(kDyteJoinedMeetingParticipant participant_,
                       DyteParticipantEventsListener *self) {
-    auto participant = self->getOrAddParticipant(participant_);
+    auto participant =
+        self->participantStore->GetOrAddParticipant(participant_);
     self->OnLeave(participant);
-    self->map_.erase(participant->Id());
+    self->participantStore->RemoveParticipant(participant->Id());
   }
 
   static void onAudioUpdate(bool enabled,
                             kDyteJoinedMeetingParticipant participant_,
                             DyteParticipantEventsListener *self) {
-    self->OnAudioUpdate(enabled, self->getOrAddParticipant(participant_));
+    self->OnAudioUpdate(
+        enabled, self->participantStore->GetOrAddParticipant(participant_));
   }
 
 public:
   DyteParticipantEventsListener(OnJoinCb onJoin, OnLeaveCb onLeave,
-                                OnAudioUpdateCb onAudioUpdate)
+                                OnAudioUpdateCb onAudioUpdate,
+                                std::shared_ptr<DyteParticipantStore> store)
       : KDyteParticipantEventsListener(
             DyteSdk.utils.DyteParticipantEventsListener
                 .DyteParticipantEventsListener(
@@ -318,7 +332,8 @@ public:
                     reinterpret_cast<void *>(
                         &DyteParticipantEventsListener::onAudioUpdate),
                     this)),
-        OnJoin(onJoin), OnLeave(onLeave), OnAudioUpdate(onAudioUpdate) {}
+        OnJoin(onJoin), OnLeave(onLeave), OnAudioUpdate(onAudioUpdate),
+        participantStore(store) {}
   ~DyteParticipantEventsListener() {}
 
   // Interface
@@ -329,10 +344,35 @@ public:
 };
 
 class DyteMobileClient : public KDyteMobileClient {
+private:
+  std::shared_ptr<DyteParticipantStore> participantStore;
+
+#if 0
+  void populateParticipants() {
+    auto participants =
+        KotlinAutoFree<TypeName(core_models, DyteRoomParticipants)>(
+            DyteSdk.DyteMobileClient.get_participants(*this));
+    auto list = KotlinAutoFree<libmobilecore_kref_kotlin_collections_List>(
+        DyteSdk.models.DyteRoomParticipants.get_joined(participants));
+
+    std::vector<kDyteJoinedMeetingParticipant> vec;
+    auto cb = [](void *stableRef, void *userp) {
+      auto ref = static_cast<DyteMobileClient *>(userp)
+          ->GetParticipantStore()
+          ->GetOrAddParticipant({stableRef});
+    };
+
+    DyteSdk.utils.ListForEach(
+        list,
+        reinterpret_cast<void *>(static_cast<void (*)(void *, void *)>(cb)),
+        this);
+  }
+#endif
 public:
   DyteMobileClient()
       : KDyteMobileClient(DyteSdk.DyteMeetingBuilder.build(
-            KDyteMeetingBuilder(DyteSdk.DyteMeetingBuilder._instance()))) {}
+            KDyteMeetingBuilder(DyteSdk.DyteMeetingBuilder._instance()))),
+        participantStore(std::make_shared<DyteParticipantStore>()) {}
   ~DyteMobileClient() {}
 
   bool Init(DyteMeetingInfoV2 &info) {
@@ -343,6 +383,10 @@ public:
     return wrappedCb.Get();
   }
 
+  std::shared_ptr<DyteParticipantStore> GetParticipantStore() {
+    return participantStore;
+  }
+
   void
   RegisterParticipantEventsListener(DyteParticipantEventsListener *listener) {
     DyteSdk.DyteMobileClient.addParticipantEventsListener(*this, *listener);
@@ -351,8 +395,8 @@ public:
   std::shared_ptr<DyteJoinedMeetingParticipant> GetLocalUser() {
     auto localUser = DyteSdk.DyteMobileClient.get_localUser(*this);
     DyteSdk.models.DyteSelfParticipant.enableAudio(localUser);
-    return std::make_shared<DyteJoinedMeetingParticipant>(
-        kDyteJoinedMeetingParticipant{localUser.pinned});
+
+    return participantStore->GetOrAddParticipant({localUser.pinned});
   }
 
   bool JoinRoom() {
@@ -378,8 +422,12 @@ PYBIND11_MODULE(mobile, m) {
       .def("SendData", &DyteJoinedMeetingParticipant::SendData)
       .def("Id", &DyteJoinedMeetingParticipant::Id);
 
+  py::class_<DyteParticipantStore, std::shared_ptr<DyteParticipantStore>>(
+      m, "DyteParticipantStore");
+
   py::class_<DyteParticipantEventsListener>(m, "DyteParticipantEventsListener")
-      .def(py::init<OnJoinCb, OnLeaveCb, OnAudioUpdateCb>());
+      .def(py::init<OnJoinCb, OnLeaveCb, OnAudioUpdateCb,
+                    std::shared_ptr<DyteParticipantStore>>());
 
   py::class_<DyteMobileClient>(m, "DyteClient")
       .def(py::init<>())
@@ -387,6 +435,7 @@ PYBIND11_MODULE(mobile, m) {
            py::call_guard<py::gil_scoped_release>())
       .def("RegisterParticipantEventsListener",
            &DyteMobileClient::RegisterParticipantEventsListener)
+      .def("GetParticipantStore", &DyteMobileClient::GetParticipantStore)
       .def("GetLocalUser", &DyteMobileClient::GetLocalUser)
       .def("JoinRoom", &DyteMobileClient::JoinRoom,
            py::call_guard<py::gil_scoped_release>());
