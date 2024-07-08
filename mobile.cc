@@ -186,6 +186,18 @@ public:
         absolute_capture_timestamp_ms);
   }
 
+  bool HasAudioTrack(void) {
+    auto track =
+        DyteSdk.models.DyteJoinedMeetingParticipant.get_audioTrack(*this);
+
+    if (track.pinned != nullptr) {
+      auto dropTrack = DyteAudioStreamTrack(track);
+      return true;
+    }
+
+    return false;
+  }
+
   bool HasDataCb(void) {
     std::lock_guard<std::mutex> lock(audioCbMutex);
     return audioCb != nullptr;
@@ -359,6 +371,7 @@ PYBIND11_MODULE(mobile, m) {
   py::class_<DyteJoinedMeetingParticipant,
              std::shared_ptr<DyteJoinedMeetingParticipant>>(
       m, "DyteJoinedMeetingParticipant")
+      .def("HasAudioTrack", &DyteJoinedMeetingParticipant::HasAudioTrack)
       .def("HasDataCb", &DyteJoinedMeetingParticipant::HasDataCb)
       .def("RegisterDataCb", &DyteJoinedMeetingParticipant::RegisterDataCb)
       .def("UnregisterDataCb", &DyteJoinedMeetingParticipant::UnregisterDataCb)

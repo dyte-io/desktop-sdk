@@ -43,6 +43,9 @@ class DyteInputTransport(BaseInputTransport):
         super().__init__(*args, **kwargs)
 
     def start_listening(self, participant):
+        if participant.HasDataCb():
+            return
+
         def cb(
             audio_data,
             bits_per_sample,
@@ -140,6 +143,9 @@ class DyteTransport(BaseTransport):
             self._call_event_handler("on_join", participant)
         )
 
+        if participant.HasAudioTrack():
+            self._input.start_listening(participant)
+
     def on_audio_update(self, enabled, participant):
         if not self._input:
             return
@@ -163,6 +169,8 @@ class DyteTransport(BaseTransport):
         self._loop.create_task(
             self._call_event_handler("on_leave", participant)
         )
+
+        self._input.stop_listening(participant)
 
 
 # Wrap transcript frames with {Started,Stopped}Speaking frames
