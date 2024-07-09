@@ -1,3 +1,3 @@
 from .prebuilts.dyte_sdk import *
 
-__version__ = "0.0.1"
+__version__ = __import__("importlib.metadata").metadata.version(__package__)
