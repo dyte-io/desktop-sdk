@@ -1,3 +1,14 @@
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "dyte_sdk"
+description = "Dyte Python SDK"
+dynamic = ["version"]
+
+[tool.setuptools.packages.find]
+where = ["src/python"]
+
+[project.optional-dependencies]
+ai-transport = ["pipecat-ai"]
