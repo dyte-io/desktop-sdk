@@ -1,4 +1,4 @@
-#include "releaseShared/libmobilecore_api.h"
+#include "libmobilecore_api.h"
 #include <Python.h>
 #include <functional>
 #include <future>
@@ -408,7 +408,7 @@ public:
   }
 };
 
-PYBIND11_MODULE(mobile, m) {
+PYBIND11_MODULE(dyte_sdk, m) {
   py::class_<DyteMeetingInfoV2>(m, "DyteMeetingInfo")
       .def(py::init<const std::string &, bool, bool, const std::string &>());
 
