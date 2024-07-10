@@ -1,17 +1,28 @@
 [build-system]
-requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools"]
 
 [project]
-name = "dyte_sdk"
 description = "Dyte Python SDK"
+name = "dyte_sdk"
 version = "0.0.1"
 
-[tool.setuptools.packages.find]
-where = ["src/python"]
+[project.optional-dependencies]
+ai-transport = ["pipecat-ai"]
+
+[tool.cibuildwheel]
+before-build = "./scripts/setup_prebuilts.sh"
+build = "cp312-manylinux_x86_64"
+manylinux-x86_64-image = "manylinux_2_28"
+
+[tool.cibuildwheel.linux]
+repair-wheel-command = ""
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = ""
 
 [tool.setuptools.package-data]
 dyte_sdk = ["prebuilts/*"]
 
-[project.optional-dependencies]
-ai-transport = ["pipecat-ai"]
+[tool.setuptools.packages.find]
+where = ["src/python"]

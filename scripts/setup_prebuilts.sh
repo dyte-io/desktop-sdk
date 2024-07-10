@@ -6,7 +6,8 @@ rm -rf build_ext
 
 cmake -B build_ext \
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
-	-DCMAKE_SKIP_BUILD_RPATH=ON
+	-DCMAKE_SKIP_BUILD_RPATH=ON \
+	-DPYTHON_EXECUTABLE="$(command -v python3)"
 
 cmake --build build_ext
 
