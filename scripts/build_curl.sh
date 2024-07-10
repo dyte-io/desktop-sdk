@@ -54,14 +54,12 @@ cd curl-8.8.0
 	--without-zstd \
 	--disable-docs \
 	--disable-ares \
-	--disable-httpsrr \
 	--disable-ech \
 	--disable-ftp \
 	--disable-file \
 	--disable-ldap \
 	--disable-ldaps \
 	--disable-rtsp \
-	--disable-proxy \
 	--disable-dict \
 	--disable-telnet \
 	--disable-tftp \
@@ -71,16 +69,12 @@ cd curl-8.8.0
 	--disable-smtp \
 	--disable-gopher \
 	--disable-mqtt \
-	--disable-verbose \
 	--disable-sspi \
 	--disable-kerberos-auth \
 	--disable-negotiate-auth \
 	--disable-aws \
 	--disable-ntlm \
-	--disable-tls-srp \
-	--disable-socketpair \
-	--disable-alt-svc \
-	--disable-hsts
+	--disable-alt-svc
 
 make
 make DESTDIR="\$PWD/root" install
