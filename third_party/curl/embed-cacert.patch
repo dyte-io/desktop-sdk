@@ -1,0 +1,29 @@
+diff --git a/lib/vtls/mbedtls.c b/lib/vtls/mbedtls.c
+index deb9a93..ae4aec8 100644
+--- a/lib/vtls/mbedtls.c
++++ b/lib/vtls/mbedtls.c
+@@ -87,6 +87,8 @@
+ #include "curl_memory.h"
+ #include "memdebug.h"
+ 
++#include "cacert.h"
++
+ /* ALPN for http2 */
+ #ifdef USE_HTTP2
+ #  undef HAS_ALPN
+@@ -570,6 +572,14 @@ mbed_connect_step1(struct Curl_cfilter *cf, struct Curl_easy *data)
+     }
+   }
+ 
++  ret = mbedtls_x509_crt_parse(&backend->cacert, cacert_pem, cacert_pem_len);
++  if (ret<0) {
++    mbedtls_strerror(ret, errorbuf, sizeof(errorbuf));
++    failf(data, "Error importing embedded ca cert blob: (-0x%04X) %s",
++          -ret, errorbuf);
++    return CURLE_SSL_CERTPROBLEM;
++  }
++
+   if(ssl_cafile && verifypeer) {
+ #ifdef MBEDTLS_FS_IO
+     ret = mbedtls_x509_crt_parse_file(&backend->cacert, ssl_cafile);
+
