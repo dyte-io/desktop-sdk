@@ -15,12 +15,6 @@ before-build = "./scripts/setup_prebuilts.sh"
 build = "cp312-manylinux_x86_64"
 manylinux-x86_64-image = "manylinux_2_28"
 
-[tool.cibuildwheel.linux]
-repair-wheel-command = ""
-
-[tool.cibuildwheel.macos]
-repair-wheel-command = ""
-
 [tool.setuptools.package-data]
 dyte_sdk = ["prebuilts/*"]
 
