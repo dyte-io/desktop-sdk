@@ -11,8 +11,8 @@ cmake -B build_ext \
 
 cmake --build build_ext
 
-rm -rf prebuilts prebuilts-debuginfo
-mkdir prebuilts prebuilts-debuginfo
+rm -rf prebuilts
+mkdir prebuilts
 
 cp \
 	build_ext/*.so \
@@ -20,3 +20,5 @@ cp \
 	third_party/libcwebrtc/libcwebrtc.so \
 	third_party/libmobilecore/libmobilecore.so \
 	prebuilts/
+
+patchelf --set-rpath '$ORIGIN' prebuilts/libmobilecore.so

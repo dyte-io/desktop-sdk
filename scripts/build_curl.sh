@@ -3,9 +3,9 @@
 set -eu
 
 docker run \
-  -v ./third_party/curl:/curl \
-  --rm -i quay.io/pypa/manylinux_2_28_x86_64:2024.07.02-0 \
-  sh - <<EOF
+	-v ./third_party/curl:/curl \
+	--rm -i quay.io/pypa/manylinux_2_28_x86_64:2024.07.02-0 \
+	sh - <<EOF
 set -euo pipefail
 
 curl -LO https://www.openssl.org/source/openssl-3.0.14.tar.gz
