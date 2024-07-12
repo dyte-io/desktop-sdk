@@ -1,6 +1,7 @@
 import asyncio
 import time
 
+from loguru import logger
 from pipecat.frames.frames import AudioRawFrame
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.transports.base_input import BaseInputTransport
@@ -25,7 +26,12 @@ class DyteInputTransport(BaseInputTransport):
 
     def start_listening(self, participant):
         if participant.HasDataCb():
+            logger.debug(
+                f"Participant already has data callback, returning: {participant.Id()}"
+            )
             return
+
+        logger.debug(f"Start listening to participant {participant.Id()}")
 
         def cb(
             audio_data,
@@ -50,6 +56,7 @@ class DyteInputTransport(BaseInputTransport):
         participant.RegisterDataCb(cb)
 
     def stop_listening(self, participant):
+        logger.debug(f"Stop listening to participant {participant.Id()}")
         participant.UnregisterDataCb()
 
 
@@ -131,8 +138,7 @@ class DyteTransport(BaseTransport):
             self._call_event_handler("on_join", participant)
         )
 
-        if participant.HasAudioTrack():
-            self._input.start_listening(participant)
+        logger.debug(f"On Join: {participant.Id()}")
 
     def on_audio_update(self, enabled, participant):
         if self._is_participant_self(participant):
@@ -143,6 +149,12 @@ class DyteTransport(BaseTransport):
         )
 
         if enabled:
+            if not participant.HasAudioTrack():
+                logger.debug(
+                    f"No audio track for participant: {participant.Id()}"
+                )
+                return
+
             self._input.start_listening(participant)
         else:
             self._input.stop_listening(participant)
@@ -154,5 +166,7 @@ class DyteTransport(BaseTransport):
         self._loop.create_task(
             self._call_event_handler("on_leave", participant)
         )
+
+        logger.debug(f"On Leave: {participant.Id()}")
 
         self._input.stop_listening(participant)
