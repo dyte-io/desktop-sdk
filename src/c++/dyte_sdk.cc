@@ -30,19 +30,11 @@ protected:
 public:
   KotlinAutoFree(T obj_) : obj(obj_) {
     if (obj.pinned == nullptr) {
-      std::cerr << __func__ << ": " << typeid(T).name()
-                << ": Got null object!\n";
-      std::abort();
+      throw std::invalid_argument(std::string(typeid(T).name()) +
+                                  ": got null object");
     }
-
-    std::cout << __func__ << ": " << typeid(T).name() << ": " << obj.pinned
-              << '\n';
   }
-  ~KotlinAutoFree() {
-    std::cout << __func__ << ": " << typeid(T).name() << ": " << obj.pinned
-              << '\n';
-    kSymbols->DisposeStablePointer(obj.pinned);
-  }
+  ~KotlinAutoFree() { kSymbols->DisposeStablePointer(obj.pinned); }
 
   operator T() const { return obj; }
 
@@ -274,13 +266,9 @@ public:
     auto it = map_.find(sharedParticipant->Id());
 
     if (it == map_.end()) {
-      std::cerr << "No participant found for ID " << sharedParticipant->Id()
-                << std::endl;
       return (map_[sharedParticipant->Id()] = sharedParticipant);
     }
 
-    std::cerr << "Returing existing participant for ID "
-              << sharedParticipant->Id() << std::endl;
     return it->second;
   }
 
