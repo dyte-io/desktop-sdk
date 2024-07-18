@@ -335,33 +335,12 @@ class DyteMobileClient : public KDyteMobileClient {
 private:
   std::shared_ptr<DyteParticipantStore> participantStore;
 
-#if 0
-  void populateParticipants() {
-    auto participants =
-        KotlinAutoFree<TypeName(core_models, DyteRoomParticipants)>(
-            DyteSdk.DyteMobileClient.get_participants(*this));
-    auto list = KotlinAutoFree<libmobilecore_kref_kotlin_collections_List>(
-        DyteSdk.models.DyteRoomParticipants.get_joined(participants));
-
-    std::vector<kDyteJoinedMeetingParticipant> vec;
-    auto cb = [](void *stableRef, void *userp) {
-      auto ref = static_cast<DyteMobileClient *>(userp)
-          ->GetParticipantStore()
-          ->GetOrAddParticipant({stableRef});
-    };
-
-    DyteSdk.utils.ListForEach(
-        list,
-        reinterpret_cast<void *>(static_cast<void (*)(void *, void *)>(cb)),
-        this);
-  }
-#endif
 public:
   DyteMobileClient()
       : KDyteMobileClient(DyteSdk.DyteMeetingBuilder.build(
             KDyteMeetingBuilder(DyteSdk.DyteMeetingBuilder._instance()))),
         participantStore(std::make_shared<DyteParticipantStore>()) {}
-  ~DyteMobileClient() {}
+  ~DyteMobileClient() { DyteSdk.DyteMobileClient.release(*this); }
 
   bool Init(DyteMeetingInfoV2 &info) {
     auto wrappedCb = DyteSuccessFailureCb();
@@ -391,6 +370,14 @@ public:
     auto wrappedCb = DyteSuccessFailureCb();
     DyteSdk.DyteMobileClient.joinRoom_(*this, wrappedCb.SuccessCb(),
                                        wrappedCb.FailureCb());
+
+    return wrappedCb.Get();
+  }
+
+  bool LeaveRoom() {
+    auto wrappedCb = DyteSuccessFailureCb();
+    DyteSdk.DyteMobileClient.leaveRoom_(*this, wrappedCb.SuccessCb(),
+                                        wrappedCb.FailureCb());
 
     return wrappedCb.Get();
   }
@@ -426,5 +413,7 @@ PYBIND11_MODULE(dyte_sdk, m) {
       .def("GetParticipantStore", &DyteMobileClient::GetParticipantStore)
       .def("GetLocalUser", &DyteMobileClient::GetLocalUser)
       .def("JoinRoom", &DyteMobileClient::JoinRoom,
+           py::call_guard<py::gil_scoped_release>())
+      .def("LeaveRoom", &DyteMobileClient::LeaveRoom,
            py::call_guard<py::gil_scoped_release>());
 }
