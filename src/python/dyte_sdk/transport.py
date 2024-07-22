@@ -116,6 +116,7 @@ class DyteTransport(BaseTransport):
         self._input = DyteInputTransport(self._params)
 
         self._client.JoinRoom()
+        self._client.EnableAudio()
 
     def _is_participant_self(self, participant):
         return participant.Id() == self._client.GetLocalUser().Id()

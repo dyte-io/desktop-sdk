@@ -361,9 +361,13 @@ public:
 
   std::shared_ptr<DyteJoinedMeetingParticipant> GetLocalUser() {
     auto localUser = DyteSdk.DyteMobileClient.get_localUser(*this);
-    DyteSdk.models.DyteSelfParticipant.enableAudio(localUser);
-
     return participantStore->GetOrAddParticipant({localUser.pinned});
+  }
+
+  void EnableAudio() {
+    auto localUser = KotlinAutoFree<TypeName(core_models, DyteSelfParticipant)>(
+        DyteSdk.DyteMobileClient.get_localUser(*this));
+    DyteSdk.models.DyteSelfParticipant.enableAudio(localUser);
   }
 
   bool JoinRoom() {
@@ -412,6 +416,7 @@ PYBIND11_MODULE(dyte_sdk, m) {
            &DyteMobileClient::RegisterParticipantEventsListener)
       .def("GetParticipantStore", &DyteMobileClient::GetParticipantStore)
       .def("GetLocalUser", &DyteMobileClient::GetLocalUser)
+      .def("EnableAudio", &DyteMobileClient::EnableAudio)
       .def("JoinRoom", &DyteMobileClient::JoinRoom,
            py::call_guard<py::gil_scoped_release>())
       .def("LeaveRoom", &DyteMobileClient::LeaveRoom,
