@@ -1,5 +1,15 @@
 # desktop-core
 
+Server-side Python SDK for Dyte
+
+## Usage
+
+The API is fairly simple and exposes functions to join a room, listen for callbacks and consume/produce audio. Raw API usage can be found in the internal [transport](src/python/dyte_sdk/transport.py)
+
+An end-to-end example can be found in the [examples](examples/chatbot) directory that makes use of the [pipecat](https://github.com/pipecat-ai/pipecat) framework to create a voice bot
+
+Note that the SDK is currently in an alpha state - the API is not very Pythonic, and crashes might occasionally occur
+
 ## Directory Structure
 
 ```sh
